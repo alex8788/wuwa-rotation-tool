@@ -3,37 +3,38 @@
 // App.vue
 // 根元件：負責掛載全域 UI 結構。
 //
-// 目前為 Phase 1 骨架版本。
-// Phase 3 實作 AppLayout / ToastNotification 後，
-// 請將此檔案替換為 Phase 3 提供的完整版本。
+// 目前為 Phase 3 測試版，成功掛載了 Toast 提示框。
+// Phase 4 實作 AppLayout 後，將取代此處的佔位結構。
 // ============================================================
+
+import ToastNotification from '@/components/ui/ToastNotification.vue'
+
+// ── 開發期測試示範（Phase 4 串接後可刪除） ─────────────
+import { showToast } from '@/composables/useToast'
+
+function demoToast(): void {
+  showToast('已新增至模板庫', 'success')
+}
 </script>
 
 <template>
-  <!--
-    根容器：撐滿視窗、禁止外層捲動。
-    所有捲動行為由內部各子元件自行控制（泳道水平捲動、側邊欄垂直捲動）。
-  -->
   <div
     id="app-root"
-    class="h-screen w-screen overflow-hidden bg-void text-white font-sans"
+    class="h-screen w-screen overflow-hidden bg-slate-900 text-white font-sans relative"
   >
-    <!--
-      Phase 1 臨時佔位畫面。
-      Phase 3 完成後，以下內容會替換為：
-        <AppLayout />
-        <ToastNotification />
-    -->
-    <div class="flex h-full items-center justify-center flex-col gap-4">
-      <p class="text-chrome font-mono text-2xl tracking-widest">WUWA ROTATION TOOL</p>
-      <p class="text-white/30 text-sm">Phase 1 骨架 — 建置環境就緒</p>
-      <div class="flex gap-3 mt-2">
-        <span class="px-3 py-1 rounded bg-surface text-white/60 text-xs font-mono">Vue 3</span>
-        <span class="px-3 py-1 rounded bg-surface text-white/60 text-xs font-mono">TypeScript</span>
-        <span class="px-3 py-1 rounded bg-surface text-white/60 text-xs font-mono">Pinia</span>
-        <span class="px-3 py-1 rounded bg-surface text-white/60 text-xs font-mono">Tailwind CSS</span>
-        <span class="px-3 py-1 rounded bg-surface text-white/60 text-xs font-mono">VueDraggablePlus</span>
-      </div>
-    </div>
+    <main class="flex h-full flex-col items-center justify-center gap-6">
+      <p class="text-gray-400 font-mono text-xl tracking-widest">
+        PHASE 3: UI 基礎元件測試
+      </p>
+      
+      <button
+        class="px-6 py-2 bg-cyan-400 text-slate-900 font-bold rounded shadow-lg hover:bg-cyan-300 hover:-translate-y-0.5 transition-all active:translate-y-0"
+        @click="demoToast"
+      >
+        測試 Toast 提示框
+      </button>
+    </main>
+
+    <ToastNotification />
   </div>
 </template>

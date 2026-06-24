@@ -15,6 +15,8 @@ export interface SortableEventLike {
   newIndex?: number;
   oldDraggableIndex?: number;
   newDraggableIndex?: number;
+  to?: HTMLElement;   // 放置目標容器
+  from?: HTMLElement; // 拖曳來源容器
 }
 
 interface DragState {
@@ -158,14 +160,17 @@ export function useBlockDrag() {
     rotationStore.moveBlock(draggingId, globalInsertAfter);
   }
 
-  function handleDragEnd(): void {
+  function handleDragEnd(event?: SortableEventLike): void {
     if (!_dragState.isDragging) return;
     const { sourceType, draggingId, isOverSidebar, dropHandled } = _dragState;
+    // to === from 代表 SortableJS 拒絕此次放置並自行還原（例如跨軸被 put 規則擋下、
+    // 或快速放開時目標容器沒有變），不應視為「拖到無效區刪除」
+    const wasCancelled = event?.to && event?.from && event.to === event.from;
     if (sourceType === 'rotation-instance' && draggingId) {
       if (isOverSidebar) {
         const entry = rotationStore.entries.find((e) => e.id === draggingId);
         if (entry) sidebarStore.serializeToTemplate(entry.block);
-      } else if (!dropHandled) {
+      } else if (!dropHandled && !wasCancelled) {
         rotationStore.deleteBlock(draggingId);
       }
     }

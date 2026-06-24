@@ -79,9 +79,9 @@ function handleUpdate(event: SortableEventLike): void {
   handleSameLaneDrop(event, props.slotIndex)
 }
 
-// 拖曳結束：統一交由 useBlockDrag 決策
-function handleEnd(): void {
-  handleDragEnd()
+// 拖曳結束
+function handleEnd(event: SortableEventLike): void {
+  handleDragEnd(event)
 }
 
 // 區塊點擊選取 (支援 Ctrl/Meta 多選)
@@ -207,7 +207,7 @@ function handleTrackClick(): void {
           </VueDraggable>
 
           <div
-            v-if="localEntries.length === 0 && dragState.isDragging"
+            v-if="localEntries.length === 0 && dragState.isDragging && dragState.sourceType !== 'rotation-instance'"
             class="track__empty-dropzone"
             aria-hidden="true"
           >

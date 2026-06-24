@@ -10,7 +10,12 @@ import { DEFAULT_BLOCKS } from '@/constants/defaultBlocks'
 import { useBlockDrag, DROP_ZONE_ATTRIBUTE } from '@/composables/useBlockDrag'
 import type { DefaultBlock } from '@/types/block'
 
-const { onSidebarDragStart, getSidebarSortableOptions } = useBlockDrag()
+const { onSidebarDragStart, getSidebarSortableOptions, handleDragEnd: _handleDragEnd } = useBlockDrag()
+
+function handleDragEnd(): void {
+  localBlocks.value = [...DEFAULT_BLOCKS]
+  _handleDragEnd()
+}
 
 // 套件要求綁定一個它能自行操作的陣列，不能直接綁常數。
 // 這份清單不會被排序也不接受拖入，所以不需要額外同步機制。
@@ -47,6 +52,7 @@ function handleDragStart(event: { oldIndex?: number }): void {
         :[DROP_ZONE_ATTRIBUTE]="true"
         v-bind="dragOptions"
         @start="handleDragStart"
+        @end="handleDragEnd"
       >
         <BlockChip
           v-for="block in localBlocks"

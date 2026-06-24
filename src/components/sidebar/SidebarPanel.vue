@@ -58,3 +58,52 @@ const TABS: { id: TabId; label: string }[] = [
     </div>
   </aside>
 </template>
+
+<style scoped>
+.sidebar-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0 0.75rem;
+  overflow-y: auto;
+}
+
+.segmented-control {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 0;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  margin-bottom: 0.25rem;
+}
+
+.segment-btn {
+  flex: 1;
+  padding: 0.3125rem 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.40);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.segment-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.segment-btn--active {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.90);
+}
+
+.tab-content {
+  flex: 1;
+  overflow-y: auto;
+}
+</style>

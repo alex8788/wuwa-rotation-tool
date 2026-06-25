@@ -148,8 +148,11 @@
   box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.55);
   filter: brightness(1.08);
   transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
-  z-index: 10;
-  position: relative;
+  /* n6/n7 共同根因：原本這裡有 z-index:10 + position:relative，會套到 chip 的
+     內部每一層（含實心底色層 .block-chip__bg）。底色層被提到 z-index:10，
+     蓋過文字層 .block-chip__label（z-index:2）→ label 被自己的背景遮住而看不見
+     （分身與本體皆中招）。抓取浮空只需 transform/shadow/filter，不該動內部層的
+     堆疊，故移除 z-index 與 position。 */
 }
 
 /* ── 拖曳分身 Drag：僅 forceFallback: true 時可見 ────────────── */
@@ -174,6 +177,32 @@
 .sortable-fallback,
 .sortable-drag {
   transition: none !important;
+  /* n7：SortableJS 在浮動分身本體寫 inline opacity:0.8，使灰底預設區塊白字
+     對比再被打折而看不見 label。此規則放在 @layer 之外（全域、非分層），
+     確保不會被 Tailwind purge 誤刪（這兩個 class 是 SortableJS 執行期才動態
+     掛上，原始碼掃描不到）。!important 蓋過 inline opacity。 */
+  opacity: 1 !important;
+}
+
+/* ── n6：側邊欄拖曳時，原始 chip 不可消失 ──────────────────────────
+   forceFallback 下，SortableJS 會把「拖曳來源的本物 DOM（dragEl）」掛上
+   .sortable-ghost 當作佔位。但上方全域 .sortable-ghost 規則（為主軸吸附線
+   而設）會把它變透明 → 側邊欄原始 chip 在拖曳期間消失。pull:'clone' 的
+   clone 又只在「離開清單」後才顯示，於是出現「開始即消失 / 進主軸排序才
+   復活 / 移回原位又消失」的閃爍。
+   解法：在側邊欄拖曳容器內，把 ghost 還原為可見（原本 chip 留在原位，
+   符合「拖出複製、原本保留」的設計），且不畫吸附線。主軸（[data-drop-zone]
+   內）的吸附線規則完全不受影響。 */
+.chip-row__draggable .sortable-ghost {
+  opacity: 1 !important;
+}
+
+.chip-row__draggable .sortable-ghost > * {
+  visibility: visible !important;
+}
+
+.chip-row__draggable .sortable-ghost::after {
+  display: none !important;
 }
 
 /* 條紋流動動畫（元件內的 danger-march 為 scoped，全域無法引用，需自備一份） */
@@ -204,22 +233,23 @@ body.dragging-over-delete .sortable-fallback .block-chip__bg {
   animation: danger-march-global 0.55s linear infinite;
 }
 
-/* 側邊欄區塊拖到無效區：不可放置（放開彈回）→ 禁止游標 ＋ 在填色層畫上禁止符號。
-   同樣改寫填色層而非疊 ::after，確保符號不被分身內容遮住；文字層淡出讓符號清晰。 */
+/* 側邊欄區塊拖到無效區：不可放置（放開彈回）。
+   架構限制：forceFallback 的浮動分身設 pointer-events:none，真實游標其實落在
+   底下元素上，故 cursor:not-allowed 對分身無效 → 必須用「圖標」表達禁止。
+   n7 取捨：先前把禁止符號置中放大＋label 淡到 0.2，會在「從側邊欄拖到主軸合法
+   落點之前」的整段路徑蓋住 label。改為（依使用者選擇）：暗紅底＋紅框，禁止符號
+   縮小貼右上角，label 維持置中且 opacity 不變 → 兩者不交疊、label 全程可見。
+   （label z-index:2 仍在 __bg 之上，符號畫在 __bg 不會蓋到 label。） */
 body.dragging-forbidden .sortable-fallback {
-  cursor: not-allowed;
   border: 1.5px solid rgba(239, 68, 68, 0.85) !important;
   border-radius: 6px;
+  box-shadow: 0 0 10px 1px rgba(239, 68, 68, 0.45);
 }
 
 body.dragging-forbidden .sortable-fallback .block-chip__bg {
-  background-color: rgba(18, 18, 24, 0.92) !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%23ff5b5b' stroke-width='2.4'/%3E%3Cline x1='5.6' y1='5.6' x2='18.4' y2='18.4' stroke='%23ff5b5b' stroke-width='2.4'/%3E%3C/svg%3E") !important;
+  background-color: rgba(120, 22, 22, 0.92) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%23ff7b7b' stroke-width='2.6'/%3E%3Cline x1='5.6' y1='5.6' x2='18.4' y2='18.4' stroke='%23ff7b7b' stroke-width='2.6'/%3E%3C/svg%3E") !important;
   background-repeat: no-repeat !important;
-  background-position: center !important;
-  background-size: 1.25rem 1.25rem !important;
-}
-
-body.dragging-forbidden .sortable-fallback .block-chip__label {
-  opacity: 0.2;
+  background-position: top 1px right 1px !important;
+  background-size: 0.75rem 0.75rem !important;
 }

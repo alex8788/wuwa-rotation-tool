@@ -205,10 +205,17 @@
   display: none !important;
 }
 
-/* 條紋流動動畫（元件內的 danger-march 為 scoped，全域無法引用，需自備一份） */
+/* 條紋流動動畫（元件內的 danger-march 為 scoped，全域無法引用，需自備一份）。
+   n8：斜紋無斷層的關鍵不是位移值，而是 background-size。預設 size=auto＝填滿元素，
+   tile 邊界＝區塊寬度，寬度非條紋週期整數倍時接縫對不上 → 斷層（且隨寬度而異）。
+   解法：把 tile 寫死成「條紋週期的正方形」(見下方 background-size)，與寬度脫鉤；
+   並讓 x、y 同步移動一整個 tile，條紋才會垂直自身方向絲滑流動且無縫。
+   方向：-45deg 漸層指向左上 → 等色條紋是「/」方向，須沿垂直於它(右下，x、y 同號)
+   移動才會流動；x、y 反號會沿條紋自身方向移動而看起來靜止。
+   此處對應 delete 紅紋週期 12px → tile = 12√2 ≈ 16.9706px。 */
 @keyframes danger-march-global {
   from { background-position: 0 0; }
-  to   { background-position: 15.56px 0; }
+  to   { background-position: 16.9706px 16.9706px; }
 }
 
 /* 紅色刪除警告：直接改寫分身內「實心填色層」.block-chip__bg 的背景。
@@ -230,7 +237,10 @@ body.dragging-over-delete .sortable-fallback .block-chip__bg {
     rgba(153, 27, 27, 0.85) 6px,
     rgba(153, 27, 27, 0.85) 12px
   ) !important;
-  animation: danger-march-global 0.55s linear infinite;
+  /* n8：tile 寫死為條紋週期的正方形(12√2)，與區塊寬度脫鉤，接縫永遠連續無斷層 */
+  background-size: 16.9706px 16.9706px !important;
+  background-repeat: repeat !important;
+  animation: danger-march-global 1s linear infinite;
 }
 
 /* 側邊欄區塊拖到無效區：不可放置（放開彈回）。

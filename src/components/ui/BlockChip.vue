@@ -137,21 +137,28 @@ withDefaults(defineProps<Props>(), {
   position: absolute;
   inset: 0;
   z-index: 1;
-  background: repeating-linear-gradient(
+  background-image: repeating-linear-gradient(
     -45deg,
     rgba(239, 68, 68, 0.72)   0px,
     rgba(239, 68, 68, 0.72)   5px,
     rgba(185, 28,  28, 0.30)  5px,
     rgba(185, 28,  28, 0.30) 11px
   );
+  /* n8：tile 寫死為條紋週期的正方形(11√2)，與區塊寬度脫鉤，接縫永遠連續無斷層。
+     預設 background-size:auto 會讓 tile＝區塊寬度，寬度非週期整數倍時接縫斷層。 */
+  background-size: 15.5563px 15.5563px;
+  background-repeat: repeat;
   /* 條紋流動動畫 */
-  animation: danger-march 0.55s linear infinite;
+  animation: danger-march 1s linear infinite;
 }
 
 @keyframes danger-march {
   from { background-position: 0 0; }
-  /* 11px × √2 ≈ 15.56px — 對角線週期，確保無縫循環 */
-  to   { background-position: 15.56px 0; }
+  /* 11px×√2 ≈ 15.5563px：移動一整個 tile，且 x、y 同步移動讓條紋垂直自身方向
+     絲滑流動（只移單軸會變橫向滑且視覺怪）。tile 已與寬度脫鉤，故無斷層。
+     方向須 x、y 同號（-45deg 漸層的「/」條紋，垂直方向＝右下）；反號會沿條紋
+     自身方向移動而看起來靜止。 */
+  to   { background-position: 15.5563px 15.5563px; }
 }
 
 /* isDanger 時強化文字對比（條紋背景下仍可讀） */

@@ -241,6 +241,10 @@ function onScrollMouseDown(event: MouseEvent): void {
   if (dragState.isDragging) return
   const t = event.target as Element | null
   if (!t) return
+  // 框選起手區：主軸捲動容器空白處，或頂部標題列空白處。
+  // 刻意不含側邊欄（避免與側邊欄拖曳/捲動互搶）。掛在 window bubble，於 target
+  // 自身處理（SortableJS 起拖）之後才跑，故不會搶走區塊拖曳。
+  if (!t.closest('.board__scroll, .app-header')) return
   // 按在區塊/互動元素上 → 讓位給 SortableJS（不搶事件）
   if (t.closest('.rotation-block, button, input, textarea, [role="combobox"], .char-selector__listbox')) {
     return
@@ -351,15 +355,16 @@ onMounted(async () => {
   }
   window.addEventListener('resize', handleResize)
 
-  // 框選起手：綁在捲動容器的冒泡階段（不用 window capture，不搶 SortableJS）
-  boardScrollRef.value?.addEventListener('mousedown', onScrollMouseDown)
+  // 框選起手：掛 window bubble（起點區由處理器內 closest 限定為主軸/標題列空白）。
+  // bubble 階段在 target 自身處理之後才跑，不搶 SortableJS 的區塊起拖。
+  window.addEventListener('mousedown', onScrollMouseDown)
   // 框選後的 terminal click 攔截：window capture 確保放開點在 board 外也攔得到
   window.addEventListener('click', onGlobalClickCapture, true)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
-  boardScrollRef.value?.removeEventListener('mousedown', onScrollMouseDown)
+  window.removeEventListener('mousedown', onScrollMouseDown)
   window.removeEventListener('click', onGlobalClickCapture, true)
   stopAutoScroll()
   window.removeEventListener('mousemove', onMarqueeMove)

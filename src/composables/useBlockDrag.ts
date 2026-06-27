@@ -84,25 +84,90 @@ const FORBIDDEN_BODY_CLASS = 'dragging-forbidden';
 // 主軸區塊懸停於側邊欄序列化區（拖回存成模板）時的浮動分身樣式
 const SIDEBAR_ZONE_BODY_CLASS = 'dragging-over-sidebar';
 
-// 拖曳時的「靜態欄位幾何快照」（含全部 entries 的欄位中心 x，依全域順序、左→右）。
-// 由 RotationBoard 於拖曳開始時讀原始佈局填入。落點 hit-test 改用此快照而非即時 DOM，
-// 避免「預覽擠出 → layout 位移 → 游標下元素改變」的回饋抖動（p10-1，主軸與側邊欄皆適用）。
-let _columnBaseline: { id: string; center: number }[] = [];
+// 目前展開中的落點 after-index（遲滯狀態，跨多次評估保留）。null = 目前無落點。
+// 含全部 entries 語意，與 store moveBlock/instantiateBlock 的 afterIndex 一致（-1=最前）。
+let _curAfter: number | null = null;
 
 // 拖曳中最後一次游標座標（視窗座標）。供 notifyAutoScroll 在「游標靜止、內容自動捲動」時，
 // 用同一座標重新評估落點（拿不到新的 mousemove event 時的座標來源）。
 let _lastClientX = 0;
 let _lastClientY = 0;
 
-// 依游標 x 對應到「全域欄位間隙」的 after-index（含全部 entries 語意，與 store moveBlock/
-// instantiateBlock 的 afterIndex 一致；-1=最前）。不分泳道 → 可橫跨全域 grid-column 排序（p10-2）。
-function _afterInFromX(clientX: number): number {
+// 即時讀各「非拖曳區塊」的中心 x（視窗座標），依全域順序回傳。
+// 改用即時 DOM（而非拖曳開始的靜態快照）→ 游標與區塊同幀讀取，捲動時兩者一起移動，
+// 不需 baseline 補償，邊緣捲動的座標偏移自然消失。
+function _liveCentersByGlobalIndex(): { gi: number; center: number }[] {
+  const draggingSet = new Set<string>(
+    _dragState.draggingIds.length
+      ? _dragState.draggingIds
+      : _dragState.draggingId
+      ? [_dragState.draggingId]
+      : [],
+  );
+  const centerById = new Map<string, number>();
+  document.querySelectorAll<HTMLElement>('.rotation-block[data-entry-id]').forEach((el) => {
+    const id = el.getAttribute('data-entry-id');
+    if (!id) return;
+    const r = el.getBoundingClientRect();
+    centerById.set(id, r.left + r.width / 2);
+  });
+  const out: { gi: number; center: number }[] = [];
+  const rotationStore = useRotationStore();
+  rotationStore.entries.forEach((e, gi) => {
+    if (draggingSet.has(e.id)) return; // 被拖區塊已隱藏、無有效位置 → 跳過
+    const center = centerById.get(e.id);
+    if (center !== undefined) out.push({ gi, center });
+  });
+  return out;
+}
+
+// 即時定位：游標 x 對應到的全域 after-index（最後一個中心 < clientX 的非拖曳區塊全域索引；-1=最前）。
+function _liveAfterIndexFromX(clientX: number): number {
+  const list = _liveCentersByGlobalIndex();
   let k = -1;
-  for (let i = 0; i < _columnBaseline.length; i++) {
-    if (_columnBaseline[i].center < clientX) k = i;
+  for (const { gi, center } of list) {
+    if (center < clientX) k = gi;
     else break;
   }
   return k;
+}
+
+// 合法 after-index 落點集合（升冪）：-1（最前）＋各非拖曳區塊的全域索引（其後）。
+function _insertionPoints(): number[] {
+  return [-1, ..._liveCentersByGlobalIndex().map((c) => c.gi)];
+}
+
+// 遲滯解析（核心）：落點空欄的展開/收合以游標為準——
+// 游標仍在當前展開 column 的即時 x 範圍內就不變動；確實跨出邊界才往該方向移動
+// （至少前進一格；大跳躍取即時定位結果）。落點空欄寬度＝對稱遲滯帶 → 解決左右不對稱。
+function _resolveAfterIndex(clientX: number): number {
+  if (_curAfter === null) {
+    _curAfter = _liveAfterIndexFromX(clientX);
+    return _curAfter;
+  }
+  const slot = document.querySelector<HTMLElement>('.track__preview-slot');
+  if (!slot) {
+    // 落點空欄尚未渲染（首幀）→ 即時定位
+    _curAfter = _liveAfterIndexFromX(clientX);
+    return _curAfter;
+  }
+  // 黏滯邊距：觸發邊界比可視 column 外擴 M px，吸收游標停在邊緣時的手抖/次像素位移，
+  // 並讓換格後游標安穩落在新 column 的黏滯區內、不立即反向跳回 → 消除邊緣閃爍。
+  const M = 6;
+  const r = slot.getBoundingClientRect();
+  if (clientX >= r.left - M && clientX <= r.right + M) {
+    return _curAfter; // 游標仍在當前 column（含黏滯邊距）內 → 維持
+  }
+  const cand = _liveAfterIndexFromX(clientX);
+  const pts = _insertionPoints();
+  if (clientX > r.right + M) {
+    const next = pts.find((p) => p > (_curAfter as number));
+    _curAfter = Math.max(cand, next ?? (_curAfter as number));
+  } else {
+    const prev = [...pts].reverse().find((p) => p < (_curAfter as number));
+    _curAfter = Math.min(cand, prev ?? (_curAfter as number));
+  }
+  return _curAfter;
 }
 
 function _handleDragOver(event: MouseEvent): void {
@@ -129,6 +194,7 @@ function _evaluateDropTarget(clientX: number, _clientY: number, target: Element 
     _dragState.isOverDeleteZone = false;
     _dragState.previewInsertAfterIndex = null;
     _dragState.previewSlotIndex = null;
+    _curAfter = null;
     document.body.classList.remove(DELETE_ZONE_BODY_CLASS);
     document.body.classList.remove(FORBIDDEN_BODY_CLASS);
     document.body.classList.add(SIDEBAR_ZONE_BODY_CLASS);
@@ -159,23 +225,23 @@ function _evaluateDropTarget(clientX: number, _clientY: number, target: Element 
   if (!overValid) {
     _dragState.previewInsertAfterIndex = null;
     _dragState.previewSlotIndex = null;
+    _curAfter = null; // 離開合法落點 → 清遲滯，再入時重新即時定位
     return;
   }
 
-  // 落點 x 一律用靜態幾何快照算（主軸與側邊欄共用，避免 elementFromPoint 讀即時 DOM 的抖動）。
-  const afterIn = _afterInFromX(clientX);
-
   if (isRotationSource) {
     // 主軸來源：歸屬泳道不變、全域位置可任意（不分泳道行）；虛框畫在自己泳道。
-    _dragState.previewInsertAfterIndex = afterIn;
+    _dragState.previewInsertAfterIndex = _resolveAfterIndex(clientX);
     _dragState.previewSlotIndex = _dragState.draggingSlotIndex;
   } else {
     // 側邊欄來源：落點 x 同樣全域，但歸屬泳道＝游標所在泳道（需角色匹配）。
+    // 先驗證泳道/角色，再解析落點，避免不合法時誤推進遲滯狀態。
     const lane = target?.closest(`[${DROP_ZONE_ATTRIBUTE}]`) ?? null;
     const slotIndex = lane ? _readSlotIndex(lane) : null;
     if (slotIndex === null) {
       _dragState.previewInsertAfterIndex = null;
       _dragState.previewSlotIndex = null;
+      _curAfter = null;
       return;
     }
     const characterStore = useCharacterStore();
@@ -184,9 +250,10 @@ function _evaluateDropTarget(clientX: number, _clientY: number, target: Element 
     if (!charId || (src && src.characterId !== null && src.characterId !== charId)) {
       _dragState.previewInsertAfterIndex = null;
       _dragState.previewSlotIndex = null;
+      _curAfter = null;
       return;
     }
-    _dragState.previewInsertAfterIndex = afterIn;
+    _dragState.previewInsertAfterIndex = _resolveAfterIndex(clientX);
     _dragState.previewSlotIndex = slotIndex;
   }
 }
@@ -199,12 +266,12 @@ function _readSlotIndex(lane: Element): SlotIndex | null {
   return n === 0 || n === 1 || n === 2 ? (n as SlotIndex) : null;
 }
 
-// 自動捲動（4.4f）由 RotationBoard 的 RAF 迴圈每幀呼叫：傳入本幀實際的 scrollLeft 變化量。
-// 捲動右移 → 內容左移 → baseline 各 center 同步扣掉 delta，與 live clientX 回到一致座標；
-// 接著用最後游標座標重新評估落點，使「游標靜止、內容自動捲動」時預覽仍即時更新。
-function notifyAutoScroll(deltaScrollLeft: number): void {
-  if (!_dragState.isDragging || deltaScrollLeft === 0) return;
-  for (const c of _columnBaseline) c.center -= deltaScrollLeft;
+// 自動捲動（4.4f）由 RotationBoard 的 RAF 迴圈在每幀實際捲動後呼叫。
+// 落點 hit-test 已全面改用即時 DOM（游標與區塊同幀讀取），捲動座標自動一致，
+// 不需 baseline 補償；此處僅以最後游標座標重新評估一次，使「游標靜止、內容自動捲動」時
+// 落點空欄隨內容滾過游標而即時更新（遲滯帶會在空欄滑離游標時觸發換格）。
+function notifyAutoScroll(): void {
+  if (!_dragState.isDragging) return;
   // 浮動分身 pointer-events:none 會穿透，elementFromPoint 取到的是底下真實元素（與 mousemove target 一致）
   const target = document.elementFromPoint(_lastClientX, _lastClientY);
   _evaluateDropTarget(_lastClientX, _lastClientY, target instanceof Element ? target : null);
@@ -239,7 +306,7 @@ function _resetDragState(): void {
   _dragState.previewInsertAfterIndex = null;
   _dragState.draggingWidth = 0;
   _dragState.previewSlotIndex = null;
-  _columnBaseline = [];
+  _curAfter = null;
   _lastClientX = 0;
   _lastClientY = 0;
   document.body.classList.remove(DELETE_ZONE_BODY_CLASS);
@@ -416,18 +483,12 @@ export function useBlockDrag() {
     } as const;
   }
 
-  // 由 RotationBoard 於主軸拖曳開始時填入靜態欄位幾何（排除被拖自己、依全域順序）。
-  function setColumnBaseline(baseline: { id: string; center: number }[]): void {
-    _columnBaseline = baseline;
-  }
-
   return {
     dragState,
     getOrCreatePendingInstanceId,
     onSidebarDragStart,
     onRotationDragStart,
     setOverSidebar,
-    setColumnBaseline,
     notifyAutoScroll,
     handleSidebarToLaneDrop,
     handleSameLaneDrop,

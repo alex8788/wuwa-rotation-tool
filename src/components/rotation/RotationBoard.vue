@@ -26,7 +26,7 @@ import type { RotationEntry } from '@/types/rotation'
 
 const characterStore = useCharacterStore()
 const rotationStore = useRotationStore()
-const { dragState, setColumnBaseline, notifyAutoScroll } = useBlockDrag()
+const { dragState, notifyAutoScroll } = useBlockDrag()
 
 // ── 依 slotIndex 分配 entries ────────────────────────────────
 
@@ -71,26 +71,6 @@ async function remeasureAfterRender(): Promise<void> {
 }
 
 watch(() => rotationStore.entries, remeasureAfterRender, { deep: true })
-
-// 拖曳開始時，快照「靜態欄位幾何」給 useBlockDrag 做落點 hit-test。
-watch(
-  () => dragState.isDragging,
-  (now) => {
-    if (!now) return
-    const centerById = new Map<string, number>()
-    document.querySelectorAll<HTMLElement>('.rotation-block[data-entry-id]').forEach((el) => {
-      const id = el.getAttribute('data-entry-id')
-      if (!id) return
-      const r = el.getBoundingClientRect()
-      centerById.set(id, r.left + r.width / 2)
-    })
-    const baseline = rotationStore.entries.map((e) => ({
-      id: e.id,
-      center: centerById.get(e.id) ?? Infinity,
-    }))
-    setColumnBaseline(baseline)
-  },
-)
 
 // ── 拖曳落點預覽（single thread 跨泳道同步擠出，含多選）─────────
 
@@ -202,7 +182,7 @@ function autoScrollTick(): void {
       const before = el.scrollLeft
       el.scrollLeft += dir * step // 瀏覽器自動 clamp 到 [0, scrollWidth-clientWidth]
       const delta = el.scrollLeft - before
-      if (delta !== 0) notifyAutoScroll(delta)
+      if (delta !== 0) notifyAutoScroll()
     }
   }
   _rafId = requestAnimationFrame(autoScrollTick)

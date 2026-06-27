@@ -26,7 +26,7 @@ import type { RotationEntry } from '@/types/rotation'
 
 const characterStore = useCharacterStore()
 const rotationStore = useRotationStore()
-const { dragState, setColumnBaseline } = useBlockDrag()
+const { dragState, setColumnBaseline, notifyAutoScroll } = useBlockDrag()
 
 // ── 依 slotIndex 分配 entries ────────────────────────────────
 
@@ -170,6 +170,62 @@ const previewIdToColumn = computed<Map<string, number>>(() => previewLayout.valu
 
 const boardScrollRef = ref<HTMLElement | null>(null)
 
+// ── 拖曳邊緣自動捲動（4.4f）─────────────────────────────────
+//
+// 拖曳中游標接近 .board__scroll 左/右邊緣時，RAF 迴圈持續修改 scrollLeft。
+// 只動 scrollLeft（不重開 SortableJS scroll、不動浮動分身）；落點正確性由
+// notifyAutoScroll(delta) 同步補償 _columnBaseline 並重算（見 useBlockDrag）。
+const EDGE = 48        // 觸發邊距（px）
+const MAX_STEP = 18    // 每幀最大位移（px）
+let _rafId = 0
+let _edgeClientX = 0
+
+function onDragMouseMove(event: MouseEvent): void {
+  _edgeClientX = event.clientX
+}
+
+function autoScrollTick(): void {
+  const el = boardScrollRef.value
+  if (el) {
+    const rect = el.getBoundingClientRect()
+    let dir = 0
+    let dist = 0
+    if (_edgeClientX <= rect.left + EDGE) {
+      dir = -1
+      dist = _edgeClientX - rect.left
+    } else if (_edgeClientX >= rect.right - EDGE) {
+      dir = 1
+      dist = rect.right - _edgeClientX
+    }
+    if (dir !== 0) {
+      const step = MAX_STEP * (1 - Math.max(0, Math.min(EDGE, dist)) / EDGE)
+      const before = el.scrollLeft
+      el.scrollLeft += dir * step // 瀏覽器自動 clamp 到 [0, scrollWidth-clientWidth]
+      const delta = el.scrollLeft - before
+      if (delta !== 0) notifyAutoScroll(delta)
+    }
+  }
+  _rafId = requestAnimationFrame(autoScrollTick)
+}
+
+function startAutoScroll(): void {
+  if (_rafId) return
+  _edgeClientX = 0
+  window.addEventListener('mousemove', onDragMouseMove)
+  _rafId = requestAnimationFrame(autoScrollTick)
+}
+
+function stopAutoScroll(): void {
+  if (_rafId) cancelAnimationFrame(_rafId)
+  _rafId = 0
+  window.removeEventListener('mousemove', onDragMouseMove)
+}
+
+watch(
+  () => dragState.isDragging,
+  (now) => (now ? startAutoScroll() : stopAutoScroll()),
+)
+
 const marquee = ref<{ active: boolean; left: number; top: number; width: number; height: number }>({
   active: false, left: 0, top: 0, width: 0, height: 0,
 })
@@ -294,6 +350,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   boardScrollRef.value?.removeEventListener('mousedown', onScrollMouseDown)
+  stopAutoScroll()
   window.removeEventListener('mousemove', onMarqueeMove)
   window.removeEventListener('mouseup', onMarqueeUp)
 })

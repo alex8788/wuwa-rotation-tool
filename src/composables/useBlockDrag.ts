@@ -89,6 +89,11 @@ const SIDEBAR_ZONE_BODY_CLASS = 'dragging-over-sidebar';
 // 避免「預覽擠出 → layout 位移 → 游標下元素改變」的回饋抖動（p10-1，主軸與側邊欄皆適用）。
 let _columnBaseline: { id: string; center: number }[] = [];
 
+// 拖曳中最後一次游標座標（視窗座標）。供 notifyAutoScroll 在「游標靜止、內容自動捲動」時，
+// 用同一座標重新評估落點（拿不到新的 mousemove event 時的座標來源）。
+let _lastClientX = 0;
+let _lastClientY = 0;
+
 // 依游標 x 對應到「全域欄位間隙」的 after-index（含全部 entries 語意，與 store moveBlock/
 // instantiateBlock 的 afterIndex 一致；-1=最前）。不分泳道 → 可橫跨全域 grid-column 排序（p10-2）。
 function _afterInFromX(clientX: number): number {
@@ -102,8 +107,16 @@ function _afterInFromX(clientX: number): number {
 
 function _handleDragOver(event: MouseEvent): void {
   if (!_dragState.isDragging) return;
+  _lastClientX = event.clientX;
+  _lastClientY = event.clientY;
   // 游標可能落在 document/window 等非 Element 目標上（無 closest 方法），需防護。
   const target = event.target instanceof Element ? event.target : null;
+  _evaluateDropTarget(event.clientX, event.clientY, target);
+}
+
+// 落點與區域評估的純函式：座標與目標全由參數帶入（不讀 event），
+// 供 mousemove（_handleDragOver）與自動捲動（notifyAutoScroll）共用。
+function _evaluateDropTarget(clientX: number, _clientY: number, target: Element | null): void {
   const isRotationSource = _dragState.sourceType === 'rotation-instance';
 
   // ── 前置：主軸區塊懸停於側邊欄序列化區 → 「拖回存成模板」落點（4.4d）──
@@ -150,7 +163,7 @@ function _handleDragOver(event: MouseEvent): void {
   }
 
   // 落點 x 一律用靜態幾何快照算（主軸與側邊欄共用，避免 elementFromPoint 讀即時 DOM 的抖動）。
-  const afterIn = _afterInFromX(event.clientX);
+  const afterIn = _afterInFromX(clientX);
 
   if (isRotationSource) {
     // 主軸來源：歸屬泳道不變、全域位置可任意（不分泳道行）；虛框畫在自己泳道。
@@ -186,6 +199,17 @@ function _readSlotIndex(lane: Element): SlotIndex | null {
   return n === 0 || n === 1 || n === 2 ? (n as SlotIndex) : null;
 }
 
+// 自動捲動（4.4f）由 RotationBoard 的 RAF 迴圈每幀呼叫：傳入本幀實際的 scrollLeft 變化量。
+// 捲動右移 → 內容左移 → baseline 各 center 同步扣掉 delta，與 live clientX 回到一致座標；
+// 接著用最後游標座標重新評估落點，使「游標靜止、內容自動捲動」時預覽仍即時更新。
+function notifyAutoScroll(deltaScrollLeft: number): void {
+  if (!_dragState.isDragging || deltaScrollLeft === 0) return;
+  for (const c of _columnBaseline) c.center -= deltaScrollLeft;
+  // 浮動分身 pointer-events:none 會穿透，elementFromPoint 取到的是底下真實元素（與 mousemove target 一致）
+  const target = document.elementFromPoint(_lastClientX, _lastClientY);
+  _evaluateDropTarget(_lastClientX, _lastClientY, target instanceof Element ? target : null);
+}
+
 let _isDragOverListenerAttached = false;
 
 function _attachDragOverListener(): void {
@@ -216,6 +240,8 @@ function _resetDragState(): void {
   _dragState.draggingWidth = 0;
   _dragState.previewSlotIndex = null;
   _columnBaseline = [];
+  _lastClientX = 0;
+  _lastClientY = 0;
   document.body.classList.remove(DELETE_ZONE_BODY_CLASS);
   document.body.classList.remove(FORBIDDEN_BODY_CLASS);
   document.body.classList.remove(SIDEBAR_ZONE_BODY_CLASS);
@@ -402,6 +428,7 @@ export function useBlockDrag() {
     onRotationDragStart,
     setOverSidebar,
     setColumnBaseline,
+    notifyAutoScroll,
     handleSidebarToLaneDrop,
     handleSameLaneDrop,
     handleDragEnd,

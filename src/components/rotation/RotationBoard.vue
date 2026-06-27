@@ -287,6 +287,10 @@ function onMarqueeUp(): void {
     })
     rotationStore.selectBlocks(hit, _mqAdditive)
     _justMarqueed = true
+    // 防呆：terminal click 會在 mouseup 後同步派發、被 onGlobalClickCapture 消化；
+    // 但若 click 始終沒派發（例如鬆手在瀏覽器視窗外），旗標需自行清除，
+    // 以免殘留而誤吞下一次正常點擊。
+    setTimeout(() => { _justMarqueed = false }, 0)
   }
 
   _mqArmed = false
@@ -294,8 +298,12 @@ function onMarqueeUp(): void {
   marquee.value = { active: false, left: 0, top: 0, width: 0, height: 0 }
 }
 
-// 框選剛結束時，攔截緊接的 click（避免 App.vue root @click 清掉剛選取的區塊）
-function onBoardClickCapture(event: MouseEvent): void {
+// 框選剛結束時，攔截緊接的 click（避免 App.vue root @click 清掉剛選取的區塊）。
+// 必須掛在 window capture：放開點在 .rotation-board 外時（例如往上框選最頂泳道、
+// 在 board 上緣外鬆手），terminal click 的事件路徑不經過 .rotation-board，
+// 若只掛在 board 上會攔不到而讓 app-root @click 清掉選取。window capture 是
+// 事件分派的最外層，無論 click 落在何處都能搶先攔下。
+function onGlobalClickCapture(event: MouseEvent): void {
   if (_justMarqueed) {
     event.stopPropagation()
     _justMarqueed = false
@@ -345,11 +353,14 @@ onMounted(async () => {
 
   // 框選起手：綁在捲動容器的冒泡階段（不用 window capture，不搶 SortableJS）
   boardScrollRef.value?.addEventListener('mousedown', onScrollMouseDown)
+  // 框選後的 terminal click 攔截：window capture 確保放開點在 board 外也攔得到
+  window.addEventListener('click', onGlobalClickCapture, true)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   boardScrollRef.value?.removeEventListener('mousedown', onScrollMouseDown)
+  window.removeEventListener('click', onGlobalClickCapture, true)
   stopAutoScroll()
   window.removeEventListener('mousemove', onMarqueeMove)
   window.removeEventListener('mouseup', onMarqueeUp)
@@ -361,7 +372,6 @@ onBeforeUnmount(() => {
     class="rotation-board"
     :[DELETE_ZONE_ATTRIBUTE]="true"
     aria-label="輸出軸面板"
-    @click.capture="onBoardClickCapture"
   >
     <div ref="boardScrollRef" class="board__scroll">
       <div class="board__lanes">

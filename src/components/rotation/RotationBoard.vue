@@ -152,13 +152,24 @@ const boardScrollRef = ref<HTMLElement | null>(null)
 
 // ── 拖曳邊緣自動捲動（4.4f）─────────────────────────────────
 //
-// 拖曳中游標接近 .board__scroll 左/右邊緣時，RAF 迴圈持續修改 scrollLeft。
+// 拖曳中游標「超出」.board__scroll 左/右邊緣時，RAF 迴圈持續修改 scrollLeft。
 // 只動 scrollLeft（不重開 SortableJS scroll、不動浮動分身）；落點正確性由
 // notifyAutoScroll(delta) 同步補償 _columnBaseline 並重算（見 useBlockDrag）。
-const EDGE = 48        // 觸發邊距（px）
-const MAX_STEP = 18    // 每幀最大位移（px）
+//
+// 觸發改為「游標抵達容器邊緣外緣」而非舊版邊緣內側 48px 寬帶（舊版游標還在泳道內就捲動）。
+// 兩側觸發位置不對稱，故速度模型也不同（但體感都是「慢→快」）：
+//   ‧ 右側：邊界＝視窗右緣（一道物理牆，游標被夾在 innerWidth-1）。EDGE_TOL 補償 off-by-one
+//     與子像素。游標頂著牆，採「時間式」二次方加速（停留越久越快）。
+//   ‧ 左側：邊界＝泳道 header 右緣，位於畫面中段、左方為開放空間（無牆）。改採「距離式」緩衝：
+//     剛越過 header 右緣最慢，游標越往左推（越接近畫面左緣）越快，LEFT_RAMP_PX 為加速到頂的距離。
+const EDGE_TOL = 4        // 右側視為「超出範圍」的容差（px）
+const LEFT_RAMP_PX = 140  // 左側：游標越過 header 右緣多遠時加速到頂（px）＝緩衝帶寬度
+const MIN_STEP = 4        // 剛進入觸發區的起始速度（px/幀）
+const MAX_STEP = 20       // 加速到頂的速度（px/幀）
+const ACCEL_MS = 1000     // 右側：從 MIN_STEP 漸進加速到 MAX_STEP 所需的停留時間(ms)
 let _rafId = 0
-let _edgeClientX = 0
+let _edgeClientX = Number.NaN  // 尚未收到 mousemove 前為 NaN → 下方比較皆 false → 不捲動
+let _accelStart = 0            // 右側時間式加速的起始時間戳（0 = 目前不在右側觸發區）
 
 function onDragMouseMove(event: MouseEvent): void {
   _edgeClientX = event.clientX
@@ -168,17 +179,32 @@ function autoScrollTick(): void {
   const el = boardScrollRef.value
   if (el) {
     const rect = el.getBoundingClientRect()
+    // 左界用泳道 sticky header 的右緣：header 蓋在軌道左側（sticky left:0、z-index:5），
+    // 視覺上的軌道左邊界＝header 右緣，而非 board 左緣。游標移到 header 右緣以左即往左捲。
+    const header = el.querySelector('.swimlane__header')
+    const leftBound = header ? header.getBoundingClientRect().right : rect.left + EDGE_TOL
+
     let dir = 0
-    let dist = 0
-    if (_edgeClientX <= rect.left + EDGE) {
+    let step = 0
+    // NaN（未移動）時兩式皆 false → dir 維持 0。
+    if (_edgeClientX <= leftBound) {
+      // 左側：距離式緩衝。距 header 右緣越遠（越往畫面左緣）越快，二次方緩動。
       dir = -1
-      dist = _edgeClientX - rect.left
-    } else if (_edgeClientX >= rect.right - EDGE) {
+      _accelStart = 0 // 左側不用時間式，清掉右側殘留的計時，避免切換側時殘留加速
+      const f = Math.min(1, (leftBound - _edgeClientX) / LEFT_RAMP_PX)
+      step = MIN_STEP + (MAX_STEP - MIN_STEP) * f * f
+    } else if (_edgeClientX >= rect.right - EDGE_TOL) {
+      // 右側：時間式加速（游標頂著畫面右緣，靠停留時間計量）。
       dir = 1
-      dist = rect.right - _edgeClientX
+      const now = performance.now()
+      if (_accelStart === 0) _accelStart = now // 剛進入右側觸發區 → 從慢速重新起步
+      const t = Math.min(1, (now - _accelStart) / ACCEL_MS)
+      step = MIN_STEP + (MAX_STEP - MIN_STEP) * t * t
+    } else {
+      _accelStart = 0 // 離開觸發區 → 重置右側加速，下次重新從慢速起步
     }
+
     if (dir !== 0) {
-      const step = MAX_STEP * (1 - Math.max(0, Math.min(EDGE, dist)) / EDGE)
       const before = el.scrollLeft
       el.scrollLeft += dir * step // 瀏覽器自動 clamp 到 [0, scrollWidth-clientWidth]
       const delta = el.scrollLeft - before
@@ -190,7 +216,8 @@ function autoScrollTick(): void {
 
 function startAutoScroll(): void {
   if (_rafId) return
-  _edgeClientX = 0
+  _edgeClientX = Number.NaN
+  _accelStart = 0
   window.addEventListener('mousemove', onDragMouseMove)
   _rafId = requestAnimationFrame(autoScrollTick)
 }

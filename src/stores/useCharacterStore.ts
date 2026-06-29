@@ -95,6 +95,19 @@ export const useCharacterStore = defineStore('character', () => {
     return slots.value[slotIndex].character?.id ?? null;
   }
 
+  /**
+   * getSlotByCharacterId：反查某角色目前所在的槽位索引（供模板依角色分流到對應泳道）。
+   * 同一角色若佔多槽則回傳第一個；無任何槽位選此角色則回傳 null。
+   *
+   * @param characterId - 角色 ID
+   * @returns 槽位索引，找不到則 null
+   */
+  function getSlotByCharacterId(characterId: string | null): SlotIndex | null {
+    if (!characterId) return null;
+    const slot = slots.value.find((s) => s.character?.id === characterId);
+    return slot ? (slot.slotIndex as SlotIndex) : null;
+  }
+
   return {
     // State
     slots,
@@ -106,5 +119,6 @@ export const useCharacterStore = defineStore('character', () => {
     setCharacter,
     clearCharacter,
     getCharacterIdBySlot,
+    getSlotByCharacterId,
   };
 });

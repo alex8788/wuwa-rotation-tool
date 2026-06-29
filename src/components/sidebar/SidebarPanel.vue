@@ -72,7 +72,9 @@ const TABS: { id: TabId; label: string }[] = [
 .segmented-control {
   display: flex;
   gap: 0.25rem;
-  padding: 0.5rem 0;
+  /* 右側預留 AppLayout 收合鈕的寬度，讓「預設／自訂」tab 不被絕對定位的
+     收合鈕蓋住（三者同一橫列、同層並排）。 */
+  padding: 0.5rem var(--app-toggle-reserve, 2.75rem) 0.5rem 0;
   flex-shrink: 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   margin-bottom: 0.25rem;
@@ -92,9 +94,15 @@ const TABS: { id: TabId; label: string }[] = [
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.segment-btn:hover {
+.segment-btn:hover,
+.segment-btn:focus-visible {
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.65);
+}
+
+/* 移除瀏覽器預設 focus ring（橘/白外框，非本專案實作） */
+.segment-btn:focus {
+  outline: none;
 }
 
 .segment-btn--active {

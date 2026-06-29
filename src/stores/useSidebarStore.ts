@@ -15,6 +15,7 @@ import type { TemplateBlock, InstanceBlock } from '../types/block';
 import { DEFAULT_BLOCKS } from '../constants/defaultBlocks';
 import { generateUUID } from '../utils/uuid';
 import { deepClone } from '../utils/deepClone';
+import { showToast as showGlobalToast, type ToastVariant } from '../composables/useToast';
 
 /** LocalStorage 儲存鍵名 */
 const STORAGE_KEY = 'wuwa-rotation-templates';
@@ -49,10 +50,10 @@ export const useSidebarStore = defineStore('sidebar', () => {
   const templates = ref<TemplateBlock[]>(loadTemplatesFromStorage());
 
   /**
-   * toastMessage：「已新增至模板庫」的提示文字。
-   * 空字串代表不顯示 Toast；設為字串後顯示，由 ToastNotification 元件監聽。
+   * selectedTemplateIds：目前在模板庫被選取的模板 id 集合（Ctrl/Cmd 多選用）。
+   * 用於批量刪除；選取狀態不持久化，重整即清空。
    */
-  const toastMessage = ref<string>('');
+  const selectedTemplateIds = ref<Set<string>>(new Set());
 
   // ──────────────────────────────────────────
   // LocalStorage 自動同步
@@ -85,13 +86,14 @@ export const useSidebarStore = defineStore('sidebar', () => {
 
   /**
    * getTemplatesByCharacter：依角色 ID 篩選對應的自訂模板。
-   * 依建立時間由舊到新排序，讓最新加入的在下方。
+   * 依 label 字元數遞增排序（短的在前）；區塊寬度由字元數自動撐開，故等同寬度遞增，
+   * 且不需量測 DOM。字數相同時以建立時間（舊→新）為次序，維持穩定排列。
    */
   const getTemplatesByCharacter = computed(
     () => (characterId: string) =>
       templates.value
         .filter((t) => t.characterId === characterId)
-        .sort((a, b) => a.createdAt - b.createdAt)
+        .sort((a, b) => a.label.length - b.label.length || a.createdAt - b.createdAt)
   );
 
   // ──────────────────────────────────────────
@@ -100,37 +102,71 @@ export const useSidebarStore = defineStore('sidebar', () => {
 
   /**
    * serializeToTemplate：將主軸上的 InstanceBlock 序列化為模板，加入側邊欄。
+   * 內部委派 serializeManyToTemplates 處理（單顆＝長度 1 的批量），確保去重與
+   * toast 行為與多選拖回完全一致。
    *
    * @param instance - 主軸上要序列化的 InstanceBlock
-   * @returns 建立完成的 TemplateBlock
    */
-  function serializeToTemplate(instance: InstanceBlock): TemplateBlock {
-    // 確保 characterId 不為 null（自訂模板一定要綁定角色）
-    if (!instance.characterId) {
-      throw new Error('[useSidebarStore.serializeToTemplate] 區塊的 characterId 不可為 null');
+  function serializeToTemplate(instance: InstanceBlock): void {
+    serializeManyToTemplates([instance]);
+  }
+
+  /**
+   * serializeManyToTemplates：批量將主軸 InstanceBlock 序列化為模板（主軸多選拖回）。
+   *
+   * 自動擋下既有元素：略過「同角色＋同 label（trim 後相同）」已存在於模板庫者，
+   * 並一併對「本批內重複」去重（同一拖曳不會把同一個塊加兩次）。
+   * 最後依新增/略過數量發「一則」彙總 toast（單顆時沿用原本的單句訊息）。
+   *
+   * @param instances - 要序列化的 InstanceBlock 陣列（通常為主軸選取集合）
+   */
+  function serializeManyToTemplates(instances: InstanceBlock[]): void {
+    // 既有模板 + 本批已加入者，統一以 `characterId|label` 為去重鍵
+    const seen = new Set(templates.value.map((t) => `${t.characterId}|${t.label.trim()}`));
+    const newTemplates: TemplateBlock[] = [];
+    let skipped = 0;
+
+    for (const instance of instances) {
+      // 主軸實體一定綁角色；防禦性跳過無角色者（理論上不會發生）
+      if (!instance.characterId) {
+        skipped++;
+        continue;
+      }
+      const cloned = deepClone(instance);
+      const label = cloned.label.trim();
+      const key = `${cloned.characterId}|${label}`;
+      if (seen.has(key)) {
+        skipped++;
+        continue;
+      }
+      seen.add(key);
+      // 精確組裝 TemplateBlock，不將 instance 專屬的 originId 屬性帶入
+      newTemplates.push({
+        id: generateUUID(),
+        label: cloned.label,
+        color: cloned.color,
+        source: 'template',
+        characterId: cloned.characterId,
+        tags: cloned.tags,
+        createdAt: Date.now(),
+      });
     }
 
-    // 深拷貝，避免主軸上的資料與模板庫共用參考
-    const clonedBlock = deepClone(instance);
+    const added = newTemplates.length;
+    if (added > 0) {
+      // 一次性接上，watch 只觸發一次持久化
+      templates.value = [...templates.value, ...newTemplates];
+    }
 
-    // 精確組裝 TemplateBlock，不將 instance 專屬的 originId 屬性帶入
-    const newTemplate: TemplateBlock = {
-      id: generateUUID(), // 統一使用泛用 id
-      label: clonedBlock.label,
-      color: clonedBlock.color,
-      source: 'template',
-      characterId: clonedBlock.characterId,
-      tags: clonedBlock.tags,
-      createdAt: Date.now(),
-    };
-
-    // 推入模板陣列（watch 會自動持久化）
-    templates.value.push(newTemplate);
-
-    // 觸發 Toast 提示
-    showToast(`已新增至模板庫`);
-
-    return newTemplate;
+    // ── 依情況發一則彙總 toast ──────────────────────────────
+    if (added === 0) {
+      // 全數已存在（或無有效塊）
+      showToast(skipped === 1 ? '模板庫已有相同區塊' : '選取區塊皆已存在於模板庫', 'warning');
+    } else if (skipped === 0) {
+      showToast(added === 1 ? '已新增至模板庫' : `已新增 ${added} 個區塊至模板庫`, 'success');
+    } else {
+      showToast(`已新增 ${added} 個區塊至模板庫，${skipped} 個區塊已存在`, 'success');
+    }
   }
 
   /**
@@ -140,25 +176,66 @@ export const useSidebarStore = defineStore('sidebar', () => {
    */
   function deleteTemplate(id: string): void {
     templates.value = templates.value.filter((t) => t.id !== id);
+    selectedTemplateIds.value.delete(id);
   }
 
   /**
-   * showToast：顯示右下角的提示框（2 秒後自動清除）。
+   * toggleTemplateSelection：切換模板的選取狀態。
+   * @param id - 目標模板 id
+   * @param additive - true（Ctrl/Cmd）時累加切換；false 時改為單選（清掉其他）
    */
-  function showToast(message: string): void {
-    toastMessage.value = message;
-    setTimeout(() => {
-      toastMessage.value = '';
-    }, 2000);
+  function toggleTemplateSelection(id: string, additive: boolean): void {
+    if (!additive) {
+      const onlyThis = selectedTemplateIds.value.size === 1 && selectedTemplateIds.value.has(id);
+      selectedTemplateIds.value.clear();
+      if (!onlyThis) selectedTemplateIds.value.add(id);
+      return;
+    }
+    if (selectedTemplateIds.value.has(id)) {
+      selectedTemplateIds.value.delete(id);
+    } else {
+      selectedTemplateIds.value.add(id);
+    }
+  }
+
+  /** clearTemplateSelection：清除所有模板選取。 */
+  function clearTemplateSelection(): void {
+    selectedTemplateIds.value.clear();
+  }
+
+  /** isTemplateSelected：該模板是否被選取。 */
+  function isTemplateSelected(id: string): boolean {
+    return selectedTemplateIds.value.has(id);
+  }
+
+  /** deleteSelectedTemplates：批量刪除目前選取的模板，並清空選取。 */
+  function deleteSelectedTemplates(): void {
+    if (selectedTemplateIds.value.size === 0) return;
+    const ids = selectedTemplateIds.value;
+    templates.value = templates.value.filter((t) => !ids.has(t.id));
+    selectedTemplateIds.value = new Set();
+  }
+
+  /**
+   * showToast：顯示右下角的提示框。
+   * 轉呼叫全域 useToast 單例（ToastNotification 唯一實際訂閱的來源）。
+   */
+  function showToast(message: string, variant: ToastVariant = 'info'): void {
+    showGlobalToast(message, variant);
   }
 
   return {
     templates,
-    toastMessage,
+    selectedTemplateIds,
     defaultBlocks,
     getTemplatesByCharacter,
     serializeToTemplate,
+    serializeManyToTemplates,
     deleteTemplate,
+    toggleTemplateSelection,
+    clearTemplateSelection,
+    isTemplateSelected,
+    deleteSelectedTemplates,
     showToast,
   };
 });

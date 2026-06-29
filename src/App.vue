@@ -8,14 +8,24 @@ import SidebarPanel from '@/components/sidebar/SidebarPanel.vue'
 import RotationBoard from '@/components/rotation/RotationBoard.vue'
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 import { useRotationStore } from '@/stores/useRotationStore'
+import { useSidebarStore } from '@/stores/useSidebarStore'
 
 const rotationStore = useRotationStore()
+const sidebarStore = useSidebarStore()
 
 useKeyboardShortcuts()
+
+// 點擊任何空白區域 → 一併清除主軸與模板庫的選取（共用同一入口）。
+// 區塊/模板 chip 各自 @click.stop，不會冒泡到此；框選結束時 RotationBoard
+// 的 window capture 攔截器會擋下這次 click，故不會誤清剛框選的內容。
+function clearAllSelection(): void {
+  rotationStore.clearSelection()
+  sidebarStore.clearTemplateSelection()
+}
 </script>
 
 <template>
-  <div class="app-root" @click="rotationStore.clearSelection()">
+  <div class="app-root" @click="clearAllSelection()">
     <AppLayout :sidebar-width="300" :header-height="64">
       <template #header>
         <AppHeader />

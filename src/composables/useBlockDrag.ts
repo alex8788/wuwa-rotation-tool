@@ -32,6 +32,9 @@ interface DragState {
   // 多選拖曳：整組被拖曳的區塊 id（依全域順序）。單拖時為 [draggingId]。
   draggingIds: string[];
   draggingSourceBlock: DefaultBlock | TemplateBlock | null;
+  // 側邊欄多選拖曳：整組來源模板，依「選取先後順序」排列（落地時由左而右解壓縮插入）。
+  // 單拖時為 [draggingSourceBlock]。
+  draggingSourceBlocks: (DefaultBlock | TemplateBlock)[];
   // 側邊欄拖曳開始時就先產生好的「未來實體 id」，讓拖曳預覽用的暫時物件
   // 與之後寫入 store 的正式 InstanceBlock 共用同一個 id（key 全程不變，
   // 避免 SortableJS 追蹤的 DOM 節點被 Vue 中途摧毀重建）
@@ -59,6 +62,7 @@ const _dragState = reactive<DragState>({
   draggingId: null,
   draggingIds: [],
   draggingSourceBlock: null,
+  draggingSourceBlocks: [],
   pendingInstanceId: null,
   draggingSlotIndex: null,
   isOverSidebar: false,
@@ -303,6 +307,7 @@ function _resetDragState(): void {
   _dragState.draggingId = null;
   _dragState.draggingIds = [];
   _dragState.draggingSourceBlock = null;
+  _dragState.draggingSourceBlocks = [];
   _dragState.pendingInstanceId = null;
   _dragState.draggingSlotIndex = null;
   _dragState.isOverSidebar = false;
@@ -339,12 +344,21 @@ export function useBlockDrag() {
     return _dragState.pendingInstanceId;
   }
 
-  function onSidebarDragStart(block: DefaultBlock | TemplateBlock): void {
+  /**
+   * onSidebarDragStart：側邊欄（預設/模板庫）開始拖曳。
+   * @param block - 實際被抓起的區塊（決定 put 規則與浮動分身寬度）
+   * @param blocks - 多選整組來源（依選取先後順序）；省略或單一時即視為單拖
+   */
+  function onSidebarDragStart(
+    block: DefaultBlock | TemplateBlock,
+    blocks?: (DefaultBlock | TemplateBlock)[]
+  ): void {
     const pendingInstanceId = getOrCreatePendingInstanceId();
     _dragState.isDragging = true;
     _dragState.sourceType = block.source === 'default' ? 'sidebar-default' : 'sidebar-template';
     _dragState.draggingId = pendingInstanceId;
     _dragState.draggingSourceBlock = block;
+    _dragState.draggingSourceBlocks = blocks && blocks.length > 1 ? [...blocks] : [block];
     _dragState.draggingSlotIndex = null;
     _dragState.dropHandled = false;
     _dragState.isOverSidebar = false;
@@ -408,6 +422,7 @@ export function useBlockDrag() {
     const draggingId = _dragState.draggingId;
     const draggingIds = [..._dragState.draggingIds];
     const sourceBlock = _dragState.draggingSourceBlock;
+    const sourceBlocks = [..._dragState.draggingSourceBlocks];
     const isOverSidebar = _dragState.isOverSidebar;
     const isOverDeleteZone = _dragState.isOverDeleteZone;
     const afterIn = _dragState.previewInsertAfterIndex; // 含全部 entries 的全域 after-index
@@ -419,8 +434,12 @@ export function useBlockDrag() {
       if (sourceType === 'rotation-instance' && draggingId) {
         const isMulti = draggingIds.length > 1;
         if (isOverSidebar) {
-          const entry = rotationStore.entries.find((e) => e.id === draggingId);
-          if (entry) sidebarStore.serializeToTemplate(entry.block);
+          // 拖回模板庫：多選整組一起序列化（批量去重＋彙總 toast），單顆亦走同路徑。
+          const ids = isMulti ? draggingIds : [draggingId];
+          const blocks = ids
+            .map((id) => rotationStore.entries.find((e) => e.id === id)?.block)
+            .filter((b): b is NonNullable<typeof b> => !!b);
+          if (blocks.length) sidebarStore.serializeManyToTemplates(blocks);
         } else if (afterIn !== null) {
           // 全域重排：afterIn 已是「含全部」語意。多選整組以鼠標錨點插入、相對順序不變。
           if (isMulti) rotationStore.moveBlocks(draggingIds, afterIn);
@@ -433,11 +452,31 @@ export function useBlockDrag() {
       } else if (sourceBlock && afterIn !== null && previewSlot !== null) {
         // 側邊欄來源落入泳道：再次角色校驗（雙重防線），用 previewSlot 決定歸屬泳道。
         const targetCharacterId = characterStore.getCharacterIdBySlot(previewSlot);
-        const isMatch =
-          targetCharacterId &&
-          (sourceBlock.characterId === null || sourceBlock.characterId === targetCharacterId);
-        if (targetCharacterId && isMatch) {
-          rotationStore.instantiateBlock(sourceBlock, previewSlot, targetCharacterId, afterIn, pendingId);
+        if (targetCharacterId) {
+          if (sourceBlocks.length > 1) {
+            // 模板庫多選拖入：依「選取先後順序」由左而右解壓縮，逐一插在落點之後。
+            // 跨泳道：每個模板依自己的 characterId 自動分流到對應泳道（非過濾），
+            //   行為對齊主軸跨泳道多選。各塊用全新 id（不共用 pendingId）。
+            // characterId 為 null（通用）的模板落入游標所在的目標泳道。
+            let insertAt = afterIn;
+            for (const b of sourceBlocks) {
+              const slot =
+                b.characterId === null
+                  ? previewSlot
+                  : characterStore.getSlotByCharacterId(b.characterId);
+              if (slot === null) continue; // 該角色目前不在任何泳道 → 略過
+              const charId = characterStore.getCharacterIdBySlot(slot);
+              if (!charId) continue;
+              rotationStore.instantiateBlock(b, slot, charId, insertAt);
+              insertAt++;
+            }
+            sidebarStore.clearTemplateSelection();
+          } else if (
+            sourceBlock.characterId === null ||
+            sourceBlock.characterId === targetCharacterId
+          ) {
+            rotationStore.instantiateBlock(sourceBlock, previewSlot, targetCharacterId, afterIn, pendingId);
+          }
         }
       }
       _resetDragState();

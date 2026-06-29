@@ -12,6 +12,13 @@ import type { Block, AnyBlock, DefaultBlock, TemplateBlock } from '../types/bloc
 import type { SlotIndex } from '../types/character';
 import { generateUUID } from '../utils/uuid';
 import { deepClone } from '../utils/deepClone';
+
+/** 刪除消失動畫時長(ms)，須與 RotationBlock 的 @keyframes block-leave 一致。 */
+const LEAVE_MS = 180;
+/** 是否偏好減少動畫（reduce 時略過刪除動畫、直接移除）。 */
+const _reducedMotion =
+  typeof window !== 'undefined' &&
+  !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 import {
   insertEntryAfterIndex,
   removeEntryById,
@@ -37,6 +44,21 @@ export const useRotationStore = defineStore('rotation', () => {
    * 使用 Set 確保不重複，並讓 has() 操作達到 O(1)。
    */
   const selectedIds = ref<Set<string>>(new Set());
+
+  /**
+   * editingId / editingDraft：目前處於行內編輯的區塊 id 與其草稿文字。
+   * 集中於 store 是為了讓 RotationBoard 的隱藏量測列能即時「看到」尚未提交的
+   * 草稿文字，據以即時重算欄寬 → 編輯時區塊寬度隨輸入即時調整、鄰塊即時順延。
+   * editingId 為 null 代表目前無區塊在編輯。
+   */
+  const editingId = ref<string | null>(null);
+  const editingDraft = ref<string>('');
+
+  /**
+   * leavingIds：正在播放刪除消失動畫的區塊 id 集合。
+   * 區塊仍留在 entries 中（佔欄位、可播動畫），動畫結束後才真正移除。
+   */
+  const leavingIds = ref<Set<string>>(new Set());
 
   // ──────────────────────────────────────────
   // Computed（衍生狀態）
@@ -173,13 +195,15 @@ export const useRotationStore = defineStore('rotation', () => {
   function insertClonedBlocks(
     clonedEntries: RotationEntry[],
     startInsertAfterIndex: number
-  ): void {
+  ): string[] {
     let currentIndex = startInsertAfterIndex;
     let currentEntries = [...entries.value]; // 暫存目前的陣列，準備批次更新
+    const newIds: string[] = []; // 回傳新插入區塊的 id（供貼上後捲動定位用）
 
     for (const entry of clonedEntries) {
       // 為了確保重複貼上時不會有 ID 衝突，每次插入都必須重新生成 UUID
       const newId = generateUUID();
+      newIds.push(newId);
       const newEntry: RotationEntry = {
         ...entry,
         id: newId,
@@ -198,6 +222,7 @@ export const useRotationStore = defineStore('rotation', () => {
     }
 
     entries.value = currentEntries; // 一次性更新響應式狀態，觸發畫面渲染
+    return newIds;
   }
 
   /**
@@ -277,12 +302,51 @@ export const useRotationStore = defineStore('rotation', () => {
   }
 
   /**
+   * startEditing：標記某區塊進入行內編輯，並以其目前 label 初始化草稿
+   *（新增的空白區塊 label 為空字串）。
+   */
+  function startEditing(id: string): void {
+    editingId.value = id;
+    editingDraft.value = entries.value.find((e) => e.id === id)?.block.label ?? '';
+  }
+
+  /** setEditingDraft：同步行內編輯框的即時草稿文字（供量測列即時重算欄寬）。 */
+  function setEditingDraft(text: string): void {
+    editingDraft.value = text;
+  }
+
+  /** stopEditing：結束行內編輯，清掉草稿狀態。 */
+  function stopEditing(): void {
+    editingId.value = null;
+    editingDraft.value = '';
+  }
+
+  /**
    * deleteSelectedBlocks：批量刪除目前所有被選中的區塊。
+   * 先標記 leavingIds 播放消失動畫，LEAVE_MS 後才真正從 entries 移除
+   *（reduce 動畫偏好或無選取時直接移除）。
    */
   function deleteSelectedBlocks(): void {
     const idsToDelete = [...selectedIds.value];
-    entries.value = removeEntriesByIds(entries.value, idsToDelete);
+    if (idsToDelete.length === 0) return;
+    // 立即清除選取，讓區塊在消失動畫期間呈現未選取樣式
     selectedIds.value.clear();
+
+    if (_reducedMotion) {
+      entries.value = removeEntriesByIds(entries.value, idsToDelete);
+      return;
+    }
+
+    idsToDelete.forEach((id) => leavingIds.value.add(id));
+    setTimeout(() => {
+      entries.value = removeEntriesByIds(entries.value, idsToDelete);
+      idsToDelete.forEach((id) => leavingIds.value.delete(id));
+    }, LEAVE_MS);
+  }
+
+  /** isLeaving：該區塊是否正在播放刪除消失動畫。 */
+  function isLeaving(id: string): boolean {
+    return leavingIds.value.has(id);
   }
 
   function selectBlock(id: string, isMultiSelect: boolean = false): void {
@@ -335,8 +399,13 @@ export const useRotationStore = defineStore('rotation', () => {
   return {
     entries,
     selectedIds,
+    editingId,
+    editingDraft,
     totalBlockCount,
     selectedEntries,
+    startEditing,
+    setEditingDraft,
+    stopEditing,
     instantiateBlock,
     addFreeformBlock,
     updateLabel,
@@ -345,6 +414,7 @@ export const useRotationStore = defineStore('rotation', () => {
     moveBlocks,
     deleteBlock,
     deleteSelectedBlocks,
+    isLeaving,
     selectBlock,
     selectBlocks,
     deselectBlock,

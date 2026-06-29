@@ -108,7 +108,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="custom-block-field" @click="sidebarStore.clearTemplateSelection()">
+  <section class="custom-block-field">
     <div
       v-for="(slot, idx) in characterStore.slots"
       :key="slot.slotIndex"

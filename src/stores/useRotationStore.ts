@@ -195,13 +195,15 @@ export const useRotationStore = defineStore('rotation', () => {
   function insertClonedBlocks(
     clonedEntries: RotationEntry[],
     startInsertAfterIndex: number
-  ): void {
+  ): string[] {
     let currentIndex = startInsertAfterIndex;
     let currentEntries = [...entries.value]; // 暫存目前的陣列，準備批次更新
+    const newIds: string[] = []; // 回傳新插入區塊的 id（供貼上後捲動定位用）
 
     for (const entry of clonedEntries) {
       // 為了確保重複貼上時不會有 ID 衝突，每次插入都必須重新生成 UUID
       const newId = generateUUID();
+      newIds.push(newId);
       const newEntry: RotationEntry = {
         ...entry,
         id: newId,
@@ -220,6 +222,7 @@ export const useRotationStore = defineStore('rotation', () => {
     }
 
     entries.value = currentEntries; // 一次性更新響應式狀態，觸發畫面渲染
+    return newIds;
   }
 
   /**

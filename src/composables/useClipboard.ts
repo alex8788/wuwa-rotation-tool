@@ -10,7 +10,7 @@
 // 並全面採用 O(N) 演算法優化排序效能，與高階拷貝機制完美對接。
 // ============================================================
 
-import { ref, readonly } from 'vue';
+import { ref, readonly, nextTick } from 'vue';
 import { useRotationStore } from '@/stores/useRotationStore';
 import { deepClone } from '@/utils/deepClone';
 import type { RotationEntry } from '@/types/rotation';
@@ -99,7 +99,41 @@ export function useClipboard() {
     // 呼叫階段一擴充的高階影印機，保留血統並賦予新 UUID
     // 注意：為了允許多次連續貼上，每次貼上時都要從剪貼簿深拷貝一次全新副本
     const itemsToInsert = _clipboardBuffer.value.map((entry) => deepClone(entry));
-    rotationStore.insertClonedBlocks(itemsToInsert, insertAfterIndex);
+    const newIds = rotationStore.insertClonedBlocks(itemsToInsert, insertAfterIndex);
+    // 貼上位置可能落在主軸可視範圍外（尤其追加至末尾）→ 渲染後自動捲動到最後一個貼上的區塊
+    _scrollEntryIntoView(newIds[newIds.length - 1]);
+  }
+
+  /**
+   * _scrollEntryIntoView：等 DOM 更新後，把指定區塊水平捲到主軸可視範圍「正中央」。
+   * 主軸橫向捲動容器為 .board__scroll，左側泳道 header 為 sticky 會覆蓋容器左緣，
+   * 故不用 scrollIntoView（會把目標推到 header 底下），改手動計算：
+   *   目標 scrollLeft = 區塊在內容座標的中心 − 可視軌道區（header 右側）的中心
+   * 再 clamp 到 [0, maxScrollLeft]；已捲到任一邊緣時自然停在邊界（不強制置中）。
+   */
+  function _scrollEntryIntoView(entryId: string | undefined): void {
+    if (!entryId) return;
+    nextTick(() => {
+      const el = document.querySelector<HTMLElement>(`.rotation-block[data-entry-id="${entryId}"]`);
+      const scroll = document.querySelector<HTMLElement>('.board__scroll');
+      if (!el || !scroll) return;
+
+      const scrollRect = scroll.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      // sticky header 寬度（可視軌道區＝容器寬扣掉 header）；讀實際 DOM 較硬編碼穩。
+      const headerW =
+        scroll.querySelector<HTMLElement>('.swimlane__header')?.getBoundingClientRect().width ?? 0;
+
+      // 區塊中心在「捲動內容座標系」的位置
+      const elCenterInContent =
+        scroll.scrollLeft + (elRect.left - scrollRect.left) + elRect.width / 2;
+      // 可視軌道區（header 右側）的中心
+      const visibleCenter = headerW + (scrollRect.width - headerW) / 2;
+
+      const maxScrollLeft = scroll.scrollWidth - scroll.clientWidth;
+      const target = Math.max(0, Math.min(elCenterInContent - visibleCenter, maxScrollLeft));
+      scroll.scrollTo({ left: target, behavior: 'smooth' });
+    });
   }
 
   /**

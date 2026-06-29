@@ -9,6 +9,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── 全域科幻風卷軸（取代瀏覽器原生樣式）─────────────────────────
+   寫在 @layer 之外（全域、非分層），確保不被 Tailwind purge 影響；且優先序
+   高於 @layer，作為全站預設。各元件若需更細的尺寸（如泳道 4px、下拉 6px）
+   仍可用自身更具體的選擇器覆蓋。青色 thumb 對齊 AppLayout 既有主題。
+   Firefox 走 scrollbar-width/color；Chromium/WebKit 走 ::-webkit-scrollbar。 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(34, 211, 238, 0.25) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgba(34, 211, 238, 0.18);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(34, 211, 238, 0.32);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* ── Base Layer 覆蓋 ───────────────────────────────────────── */
 @layer base {
   /* 全頁面基礎字型、顏色、box-sizing */

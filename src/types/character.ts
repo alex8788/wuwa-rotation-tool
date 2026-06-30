@@ -22,18 +22,22 @@ export interface Character {
   nameEn: string;
 
   /**
-   * 角色的主題色，作為該角色所有 InstanceBlock 的預設色。
-   * 使用者可在建立 Block 時覆蓋此顏色。
-   * 格式為 hex 字串，例如 '#10B981'。
-   */
-  themeColor: BlockColor;
-
-  /**
    * 角色屬性（元素）。
    * 保留欄位，供日後標籤系統或篩選功能使用。
    */
   element: CharacterElement;
+
+  /**
+   * 角色星級稀有度：5（五星）或 4（四星）。
+   * 用於角色選單在各屬性頁籤內依星級分類（5★ 在 4★ 之前）。
+   */
+  rarity: CharacterRarity;
 }
+
+/**
+ * 角色星級稀有度聯合型別。
+ */
+export type CharacterRarity = 5 | 4;
 
 /**
  * 鳴潮角色的屬性（元素）聯合型別。
@@ -67,6 +71,3 @@ export interface CharacterSlot {
  * CharacterSlots：三個角色槽的完整狀態，以 tuple 型別確保長度為 3。
  */
 export type CharacterSlots = [CharacterSlot, CharacterSlot, CharacterSlot];
-
-// 從 block.ts 重新匯出，避免循環依賴時在此檔案直接引用
-import type { BlockColor } from './block';

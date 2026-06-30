@@ -99,6 +99,15 @@ const activeItems = computed<{ char: Character; index: number }[]>(
   () => groupedOptions.value.find((g) => g.element === activeTabElement.value)?.items ?? [],
 )
 
+// 目前頁籤的角色再依星級分組（5★ 在 4★ 之前）。資料本身已按星級排列，
+// 故只需切出非空的星級群組，鍵盤巡覽仍用 activeItems 的扁平順序。
+const activeRarityGroups = computed<{ rarity: number; items: { char: Character; index: number }[] }[]>(() => {
+  const order = [5, 4]
+  return order
+    .map((rarity) => ({ rarity, items: activeItems.value.filter((it) => it.char.rarity === rarity) }))
+    .filter((g) => g.items.length > 0)
+})
+
 function setActiveTab(element: CharacterElement): void {
   activeTabElement.value = element
   // 切頁籤時把高亮移到該頁籤第一個角色（highlightedIndex 仍對 props.options 的扁平索引）
@@ -319,25 +328,31 @@ onUnmounted(() => {
             </button>
           </li>
 
-          <!-- 僅顯示目前頁籤屬性的角色；移除角色色點，左側保留頭像佔位（未來放角色頭像） -->
-          <li
-            v-for="{ char, index } in activeItems"
-            :id="`${listboxId}-option-${index}`"
-            :key="char.id"
-            :ref="(el) => setOptionRef(el as Element | null, index)"
-            role="option"
-            class="char-selector__option"
-            :class="{
-              'char-selector__option--highlighted': index === highlightedIndex,
-              'char-selector__option--selected': char.id === modelValue,
-            }"
-            :aria-selected="char.id === modelValue"
-            @mouseenter="highlightedIndex = index"
-            @click="selectOption(char)"
-          >
-            <span class="char-selector__avatar" aria-hidden="true" />
-            <span class="char-selector__option-name">{{ char.nameZh }}</span>
-          </li>
+          <!-- 僅顯示目前頁籤屬性的角色，依星級分組（5★ 在 4★ 之前）；
+               移除角色色點，左側保留頭像佔位（未來放角色頭像） -->
+          <template v-for="group in activeRarityGroups" :key="group.rarity">
+            <li class="char-selector__rarity-label" role="presentation">
+              {{ group.rarity }}★
+            </li>
+            <li
+              v-for="{ char, index } in group.items"
+              :id="`${listboxId}-option-${index}`"
+              :key="char.id"
+              :ref="(el) => setOptionRef(el as Element | null, index)"
+              role="option"
+              class="char-selector__option"
+              :class="{
+                'char-selector__option--highlighted': index === highlightedIndex,
+                'char-selector__option--selected': char.id === modelValue,
+              }"
+              :aria-selected="char.id === modelValue"
+              @mouseenter="highlightedIndex = index"
+              @click="selectOption(char)"
+            >
+              <span class="char-selector__avatar" aria-hidden="true" />
+              <span class="char-selector__option-name">{{ char.nameZh }}</span>
+            </li>
+          </template>
         </ul>
       </Transition>
     </Teleport>
@@ -515,6 +530,16 @@ onUnmounted(() => {
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+/* ── 星級分組小標題 ─────────────────────────────────────── */
+.char-selector__rarity-label {
+  padding: 0.3rem 0.625rem 0.15rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(34, 211, 238, 0.6);
+  user-select: none;
 }
 
 /* ── 選項 ───────────────────────────────────────────────── */

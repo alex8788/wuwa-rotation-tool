@@ -66,7 +66,7 @@ async function addAxis(): Promise<void> {
 async function removeAxis(id: string, name: string): Promise<void> {
   const ok = await confirm({
     title: '刪除輸出軸',
-    message: `確定刪除「${name}」?此操作可用 Ctrl+Z 復原。`,
+    message: `確定刪除「${name}」？`,
     confirmText: '刪除',
     danger: true,
   })

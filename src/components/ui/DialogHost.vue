@@ -33,7 +33,7 @@ watch(
 
 <template>
   <Teleport to="body">
-    <Transition name="dialog">
+    <Transition name="dialog" :duration="200">
       <div
         v-if="state.open"
         class="dialog-overlay"
@@ -87,6 +87,7 @@ watch(
   justify-content: center;
   background-color: rgba(5, 8, 16, 0.62);
   backdrop-filter: blur(2px);
+  opacity: 1;
 }
 
 .dialog {

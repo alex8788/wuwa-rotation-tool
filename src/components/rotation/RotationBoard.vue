@@ -57,7 +57,8 @@ const idToColumnIndex = computed<Map<string, number>>(() => {
 })
 
 function measurerColor(entry: RotationEntry): string {
-  return characterStore.slotCharacters[entry.slotIndex]?.themeColor ?? '#888888'
+  // 量測列為隱藏列，僅用於量欄寬，顏色不影響結果；沿用屬性色保持一致。
+  return getElementColor(characterStore.slotCharacters[entry.slotIndex]?.element ?? null)
 }
 
 // 量測列用的 label：編輯中的區塊改用「即時草稿」而非已提交 label，
@@ -475,7 +476,7 @@ function seedStoreWithStubData(): void {
     const char = chars[idx]
     if (!char) return
     labels.forEach((label) => {
-      rotationStore.addFreeformBlock(label, char.themeColor, slotIndex, char.id)
+      rotationStore.addFreeformBlock(label, getElementColor(char.element), slotIndex, char.id)
     })
   })
 }

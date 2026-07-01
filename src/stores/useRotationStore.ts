@@ -11,7 +11,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { RotationArray, RotationEntry, RotationAxis } from '../types/rotation';
-import type { Block, AnyBlock, DefaultBlock, TemplateBlock } from '../types/block';
+import type { Block, DefaultBlock, TemplateBlock } from '../types/block';
 import type { SlotIndex } from '../types/character';
 import { generateUUID } from '../utils/uuid';
 import { deepClone } from '../utils/deepClone';

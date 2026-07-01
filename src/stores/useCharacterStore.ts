@@ -7,7 +7,7 @@
 
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { Character, CharacterSlots, SlotIndex } from '../types/character';
+import type { CharacterSlots, SlotIndex } from '../types/character';
 import { WUWA_CHARACTERS, CHARACTER_MAP } from '../constants/characters';
 import { useHistory } from '../composables/useHistory';
 
